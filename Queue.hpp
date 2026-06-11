@@ -1,51 +1,88 @@
 #pragma once
 #include <deque>
 #include <condition_variable>
-#include "queue_test.hpp"
+#include <atomic>
+
+namespace Spsc
+{
 
 template<typename T>
-struct SpscQueue
+struct Queue
 {
     std::deque<T> queue;
     size_t maxSize;
     std::mutex access;
+    std::atomic<bool> isProducerUsed;
+    std::atomic<bool> isConsumerUsed;
     std::condition_variable emptyVar;
     std::condition_variable fullVar;
 
-    SpscQueue(size_t maxSize)
+    Queue(size_t maxSize)
     :
     maxSize(maxSize)
     {
         queue.resize(maxSize);
         queue.clear();
+        isProducerUsed.store(false, std::memory_order_relaxed);
+        isConsumerUsed.store(false, std::memory_order_relaxed);
     }
 };
 
 template<typename T>
-void produce(std::shared_ptr<SpscQueue<T>> queue, const T& data)
+bool registerProducer(Queue<T>* q)
 {
-    std::unique_lock lock(queue->access);
-    while (queue->queue.size() >= queue->maxSize)
-    {
-        queue->fullVar.wait(lock);
-    }
-    queue->queue.push_back(data);
-
-    queue->emptyVar.notify_one();
+    bool expected = false;
+    return q->isProducerUsed.compare_exchange_strong(expected, true);
 }
 
-template <typename T>
-T consume(std::shared_ptr<SpscQueue<T>> queue)
+template<typename T>
+bool unregisterProducer(Queue<T>* q)
 {
-    std::unique_lock lock(queue->access);
-    while (queue->queue.size() == 0)
+    bool expected = true;
+    return q->isProducerUsed.compare_exchange_strong(expected, false);
+}
+
+template<typename T>
+bool registerConsumer(Queue<T>* q)
+{
+    bool expected = false;
+    return q->isConsumerUsed.compare_exchange_strong(expected, true);
+}
+
+template<typename T>
+bool unregisterConsumer(Queue<T>* q)
+{
+    bool expected = true;
+    return q->isConsumerUsed.compare_exchange_strong(expected, false);
+}
+
+template<typename T>
+void produce(Queue<T>* q, const T& data)
+{
+    std::unique_lock lock(q->access);
+    while (q->queue.size() >= q->maxSize)
     {
-        queue->emptyVar.wait(lock);
+        q->fullVar.wait(lock);
     }
-    T data =  queue->queue.front();
-    queue->queue.pop_front();
+    q->queue.push_back(data);
+
+    q->emptyVar.notify_one();
+}
+
+template<typename T>
+T consume(Queue<T>* q)
+{
+    std::unique_lock lock(q->access);
+    while (q->queue.size() == 0)
+    {
+        q->emptyVar.wait(lock);
+    }
+    T data =  q->queue.front();
+    q->queue.pop_front();
     
-    queue->fullVar.notify_one();
+    q->fullVar.notify_one();
 
     return data;
 }
+
+} // Spsc namespace end
