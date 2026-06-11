@@ -9,7 +9,7 @@ git submodule update --init --recursive
 mkdir build
 cd build
 cmake ..
-make -jn
+make
 ```
 
 <h1> 3 - DESCRIPTION </h1>
