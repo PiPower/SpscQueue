@@ -3,7 +3,7 @@
 #include "queue_wrapper.hpp"
 #include <chrono>
 // Check if queue works at all
-static constexpr int DataSize = 2000;
+static constexpr int DataSize = 5000;
 static constexpr int QueueSize = 20;
 static std::atomic<int> barrier;
 
@@ -72,17 +72,26 @@ void ConsumerTest(std::shared_ptr<Spsc::Queue<int>> queue, bool waitOnBarrier = 
 }
 TEST(QueueTest, SpscTest) 
 {
-    barrier.store(2);
     std::shared_ptr<Spsc::Queue<int>> queue = std::make_shared<Spsc::Queue<int>>(QueueSize);
-    std::thread prod(ProducerTest, queue, true);
-    barrier--;
-    std::thread cons(ConsumerTest, queue, true);
-    barrier--;
-    //EXPECT_EQ(false, int_q_register_consumer(queue.get()));
-    //EXPECT_NE(std::this_thread::get_id(),  queue->consumerId);
 
-    prod.join();
-    cons.join();
+    {
+        barrier.store(2);
+        std::thread prod(ProducerTest, queue, true);
+        barrier--;
+        std::thread cons(ConsumerTest, queue, true);
+        barrier--;
+
+        prod.join();
+        cons.join();
+    }
+    // check reusability
+    {
+        std::thread prod(ProducerTest, queue, false);
+        std::thread cons(ConsumerTest, queue, false);
+
+        prod.join();
+        cons.join();
+    }
 }
 
 TEST(QueueTest, DelayedTest) 
@@ -91,12 +100,12 @@ TEST(QueueTest, DelayedTest)
 
     std::shared_ptr<Spsc::Queue<int>> queue = std::make_shared<Spsc::Queue<int>>(QueueSize);
     
-    std::thread cons(ConsumerTest, queue, false);
-    std::this_thread::sleep_for(200ms);
-    std::thread prod(ProducerTest, queue, false);
+        std::thread cons(ConsumerTest, queue, false);
+        std::this_thread::sleep_for(200ms);
+        std::thread prod(ProducerTest, queue, false);
 
-    prod.join();
-    cons.join();
+        prod.join();
+        cons.join();
 }
 
 TEST(QueueTest, ShutdownTest) 
@@ -109,7 +118,7 @@ TEST(QueueTest, ShutdownTest)
         std::thread prod(ProducerTest, queue, false);
         std::this_thread::sleep_for(200ms);
         int_q_shutdown(queue.get());
-        // if join happends then queue terminated
+        // if join happends then queue is terminated
         prod.join();
     }
     // consumer shutdown test
@@ -119,7 +128,7 @@ TEST(QueueTest, ShutdownTest)
         std::thread cons(ConsumerTest, queue, false);
         std::this_thread::sleep_for(200ms);
         int_q_shutdown(queue.get());
-        // if join happends then queue terminated
+        // if join happends then queue is terminated
         cons.join();
     }
 }
