@@ -1,50 +1,125 @@
 #include <gtest/gtest.h>
 #include <thread>
 #include "queue_wrapper.hpp"
+#include <chrono>
 // Check if queue works at all
-static constexpr int DataSize = 27;
+static constexpr int DataSize = 2000;
 static constexpr int QueueSize = 20;
-static int TestData[DataSize] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
-    10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26};
+static std::atomic<int> barrier;
 
-void ProducerTest(std::shared_ptr<Spsc::Queue<int>> queue)
+void ProducerTest(std::shared_ptr<Spsc::Queue<int>> queue, bool waitOnBarrier)
 {
+    if(waitOnBarrier)
+    {
+        //spinlock to make consumer and producer work overlap
+        while (barrier.load(std::memory_order_relaxed) != 0) {}    
+    }
+
     bool isRegistered = int_q_register_producer(queue.get());
     EXPECT_EQ(true, isRegistered);
-    EXPECT_EQ(true, queue->isProducerUsed.load());
+    EXPECT_EQ(std::this_thread::get_id(), queue->producerId);
+    // double register check
+    EXPECT_EQ(false , int_q_register_producer(queue.get()));
+    EXPECT_EQ(std::this_thread::get_id(), queue->producerId);
 
     for(int i =0; i < DataSize; i++)
     {
-        int_q_enqueue(queue.get(), TestData[i]);
+        if(!int_q_enqueue(queue.get(), i))
+        {
+            break;
+        }
     }
 
     bool isUnregistered = int_q_unregister_producer(queue.get());
     EXPECT_EQ(true, isUnregistered);
-    EXPECT_EQ(false, queue->isProducerUsed.load());
+    EXPECT_EQ(std::thread::id{}, queue->producerId);
+    // double unregister check
+    EXPECT_EQ(false, int_q_unregister_producer(queue.get()));
+    EXPECT_EQ(std::thread::id{}, queue->producerId);
 }
 
-void ConsumerTest(std::shared_ptr<Spsc::Queue<int>> queue)
+void ConsumerTest(std::shared_ptr<Spsc::Queue<int>> queue, bool waitOnBarrier = false)
 {
+    if(waitOnBarrier)
+    {
+        //spinlock to make consumer and producer work overlap
+        while (barrier.load(std::memory_order_relaxed) != 0){}    
+    }
+
     bool isRegistered = int_q_register_consumer(queue.get());
     EXPECT_EQ(true, isRegistered);
-    EXPECT_EQ(true, queue->isConsumerUsed.load());
+    EXPECT_EQ(std::this_thread::get_id(), queue->consumerId);
+    // double register check
+    EXPECT_EQ(false , int_q_register_consumer(queue.get()));
+    EXPECT_EQ(std::this_thread::get_id(), queue->consumerId);
 
     for(int i =0; i < DataSize; i++)
     {
-        int data = int_q_consume(queue.get());
-        EXPECT_EQ(TestData[i], data);
+        int data;
+        if(!int_q_consume(queue.get(), &data))
+        {
+            break;
+        }
+        EXPECT_EQ(i, data);
     }
 
     bool isUnregistered = int_q_unregister_consumer(queue.get());
     EXPECT_EQ(true, isUnregistered);
-    EXPECT_EQ(false, queue->isConsumerUsed.load());
+    EXPECT_EQ(std::thread::id{}, queue->consumerId);
+    // double unregister check
+    EXPECT_EQ(false, int_q_unregister_consumer(queue.get()));
+    EXPECT_EQ(std::thread::id{}, queue->consumerId);
 }
 TEST(QueueTest, SpscTest) 
 {
+    barrier.store(2);
     std::shared_ptr<Spsc::Queue<int>> queue = std::make_shared<Spsc::Queue<int>>(QueueSize);
-    std::thread prod(ProducerTest, queue);
-    std::thread cons(ConsumerTest, queue);
+    std::thread prod(ProducerTest, queue, true);
+    barrier--;
+    std::thread cons(ConsumerTest, queue, true);
+    barrier--;
+    //EXPECT_EQ(false, int_q_register_consumer(queue.get()));
+    //EXPECT_NE(std::this_thread::get_id(),  queue->consumerId);
 
     prod.join();
     cons.join();
+}
+
+TEST(QueueTest, DelayedTest) 
+{
+    using namespace std::chrono_literals;
+
+    std::shared_ptr<Spsc::Queue<int>> queue = std::make_shared<Spsc::Queue<int>>(QueueSize);
+    
+    std::thread cons(ConsumerTest, queue, false);
+    std::this_thread::sleep_for(200ms);
+    std::thread prod(ProducerTest, queue, false);
+
+    prod.join();
+    cons.join();
+}
+
+TEST(QueueTest, ShutdownTest) 
+{
+    using namespace std::chrono_literals;
+    // producer shutdown test
+    {
+        std::shared_ptr<Spsc::Queue<int>> queue = std::make_shared<Spsc::Queue<int>>(QueueSize);
+        
+        std::thread prod(ProducerTest, queue, false);
+        std::this_thread::sleep_for(200ms);
+        int_q_shutdown(queue.get());
+        // if join happends then queue terminated
+        prod.join();
+    }
+    // consumer shutdown test
+    {
+        std::shared_ptr<Spsc::Queue<int>> queue = std::make_shared<Spsc::Queue<int>>(QueueSize);
+        
+        std::thread cons(ConsumerTest, queue, false);
+        std::this_thread::sleep_for(200ms);
+        int_q_shutdown(queue.get());
+        // if join happends then queue terminated
+        cons.join();
+    }
 }

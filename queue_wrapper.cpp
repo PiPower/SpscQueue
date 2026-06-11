@@ -1,13 +1,13 @@
 #include "queue_wrapper.hpp"
 
-void int_q_enqueue(Spsc::Queue<int>* queue, const int &data)
+bool int_q_enqueue(Spsc::Queue<int>* queue, const int &data)
 {
-   produce(queue, data);
+   return produce(queue, data);
 }
 
-int int_q_consume(Spsc::Queue<int>* queue)
+bool int_q_consume(Spsc::Queue<int>* queue, int* data)
 {
-    return consume(queue);
+    return consume(queue, data);
 }
 
 bool int_q_register_producer(Spsc::Queue<int>* q)
@@ -28,4 +28,9 @@ bool int_q_register_consumer(Spsc::Queue<int>* q)
 bool int_q_unregister_consumer(Spsc::Queue<int>* q)
 {
     return Spsc::unregisterConsumer<int>(q);
+}
+
+void int_q_shutdown(Spsc::Queue<int> *q)
+{
+    Spsc::shutdown<int>(q);
 }
