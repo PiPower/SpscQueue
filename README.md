@@ -25,6 +25,6 @@ Queue specification didnt specify any particular performance characteristics or 
   That is rule that I try to apply to my projects to avoid any way in which testing code messes with tested code during optimized builds(UB problems or some unexpected optimizations). To enforce that rule I use shared libraries on tested code, that is also wy I introduced queue_wrapper.cpp
 <br> 
 Known limitation: <br>
-- Calling shutdown makes queue unusable and discards all remaining elements.
+- Calling shutdown makes queue unusable and discards all remaining elements. <br>
 - If either producer or consumer exits without calling unregister remaining producer or consumer will be stuck in condition variable until third thread calls shutdown<br>
 - Calling resize in queue constructor may not always work. The idea is for queue to allocated everything up-front and then reuse that memory. If this behaviour becomes crucial, different data structure might be needed.
