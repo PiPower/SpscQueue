@@ -132,3 +132,13 @@ TEST(QueueTest, ShutdownTest)
         cons.join();
     }
 }
+
+TEST(QueueTest, UnregisteredUse) 
+{
+
+    std::shared_ptr<Spsc::Queue<int>> queue = std::make_shared<Spsc::Queue<int>>(QueueSize);
+    int x = 2;
+    EXPECT_EQ(false, int_q_consume(queue.get(), &x));
+    EXPECT_EQ(false, int_q_enqueue(queue.get(), x));
+
+}
